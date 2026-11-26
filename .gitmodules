@@ -1,0 +1,3 @@
+[submodule "packages/nnn"]
+	path = packages/nnn
+	url = https://github.com/rvncore/nnn-blackpaw.git

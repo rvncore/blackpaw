@@ -1,0 +1,74 @@
+name: Build and publish BlackPaw
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: blackpaw-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout BlackPaw
+        uses: actions/checkout@v4
+
+      - name: Build Arch packages
+        run: |
+          docker run --rm \
+            -v "$PWD:/blackpaw" \
+            archlinux:base-devel \
+            bash -euxc '
+              pacman -Syu --noconfirm
+              useradd -m builder
+              mkdir -p /build /output/x86_64
+              cp -r /blackpaw/packages/. /build/
+              chown -R builder:builder /build
+
+              for package in /build/*; do
+                if [ -f "$package/PKGBUILD" ]; then
+                  cd "$package"
+                  runuser -u builder -- makepkg --noconfirm
+                  cp *.pkg.tar.zst /output/x86_64/
+                fi
+              done
+
+              cd /output/x86_64
+              repo-add blackpaw.db.tar.gz *.pkg.tar.zst
+
+              rm -f blackpaw.db blackpaw.files
+              cp blackpaw.db.tar.gz blackpaw.db
+              cp blackpaw.files.tar.gz blackpaw.files
+
+              cp -r /output/. /blackpaw/repo/
+            '
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload repository
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy BlackPaw
+        id: deployment
+        uses: actions/deploy-pages@v4
